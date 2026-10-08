@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html><head><title>Item Detail</title>
+<link rel="stylesheet" href="/static/style.css">
+</head><body>
+<div id="dashboard">
+  <h1 id="detail-title">Item Detail</h1>
+  <nav><a href="/">Back to Dashboard</a></nav>
+  <p>Viewing item <span id="item-id"></span></p>
+
+  <details>
+    <summary>Expand Details</summary>
+    <div class="expanded-content">
+      <p>Extended information about this item.</p>
+      <p>Includes multiple paragraphs of content.</p>
+    </div>
+  </details>
+
+  <button data-unsafe="true" onclick="doDelete()">Delete Item</button>
+
+  <form method="post" action="/api/trap">
+    <button type="submit">Save Changes</button>
+  </form>
+
+  <a href="/files/data.csv" download>Download CSV</a>
+  <a href="https://other-site.example.com/info">More Info (external)</a>
+</div>
+
+<script>
+const params = new URLSearchParams(window.location.search);
+const id = params.get('id') || '?';
+document.getElementById('item-id').textContent = id;
+document.getElementById('detail-title').textContent = 'Item ' + id + ' Detail';
+
+function doDelete() {
+  fetch('/api/trap', { method: 'POST', body: JSON.stringify({ action: 'delete', id: id }) });
+}
+</script>
+</body></html>

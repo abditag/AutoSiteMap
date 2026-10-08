@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: Inter, -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 13px;
+    color: #333;
+    padding: 20px;
+    background: #fff;
+  }
+  h2 {
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 16px;
+    color: #1a1a1a;
+  }
+  .drop-zone {
+    border: 2px dashed #ccc;
+    border-radius: 8px;
+    padding: 32px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    margin-bottom: 16px;
+  }
+  .drop-zone:hover, .drop-zone.drag-over {
+    border-color: #18A0FB;
+    background: #f0f8ff;
+  }
+  .drop-zone p {
+    color: #666;
+    margin-bottom: 8px;
+  }
+  .drop-zone .filename {
+    font-weight: 600;
+    color: #18A0FB;
+    word-break: break-all;
+  }
+  input[type="file"] { display: none; }
+  .info-panel {
+    background: #f5f5f5;
+    border-radius: 6px;
+    padding: 12px;
+    margin-bottom: 16px;
+    display: none;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .info-panel .label { color: #888; }
+  .info-panel .value { font-weight: 600; }
+  button#importBtn {
+    width: 100%;
+    padding: 10px 16px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #fff;
+    background: #18A0FB;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  button#importBtn:hover:not(:disabled) { background: #0d8de5; }
+  button#importBtn:disabled {
+    background: #ccc;
+    cursor: not-allowed;
+  }
+  .status {
+    margin-top: 12px;
+    padding: 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    line-height: 1.5;
+    display: none;
+  }
+  .status.info { background: #e8f4fd; color: #0b6faa; display: block; }
+  .status.error { background: #fde8e8; color: #a00b0b; display: block; }
+  .status.success { background: #e8fde8; color: #0b7a0b; display: block; }
+  .progress-bar {
+    width: 100%;
+    height: 4px;
+    background: #eee;
+    border-radius: 2px;
+    margin-top: 8px;
+    overflow: hidden;
+    display: none;
+  }
+  .progress-bar .fill {
+    height: 100%;
+    background: #18A0FB;
+    border-radius: 2px;
+    transition: width 0.3s;
+    width: 0%;
+  }
+</style>
+</head>
+<body>
+  <h2>AutoSiteMap Import</h2>
+
+  <div class="drop-zone" id="dropZone">
+    <p>Drop a <strong>.zip</strong> bundle here, or click to browse</p>
+    <div class="filename" id="fileName"></div>
+  </div>
+  <input type="file" id="fileInput" accept=".zip">
+
+  <div class="info-panel" id="infoPanel"></div>
+
+  <button id="importBtn" disabled>Import into Figma</button>
+
+  <div class="status" id="status"></div>
+  <div class="progress-bar" id="progressBar"><div class="fill" id="progressFill"></div></div>
+
+<script>
+// ── Minimal ZIP reader using DecompressionStream ──
+
+function readUint16LE(buf, off) {
+  return buf[off] | (buf[off + 1] << 8);
+}
+
+function readUint32LE(buf, off) {
+  return (buf[off] | (buf[off + 1] << 8) | (buf[off + 2] << 16) | (buf[off + 3] << 24)) >>> 0;
+}
+
+async function decompressDeflateRaw(compressed) {
+  const ds = new DecompressionStream('deflate-raw');
+  const writer = ds.writable.getWriter();
+  const reader = ds.readable.getReader();
+  writer.write(compressed);
+  writer.close();
+  const chunks = [];
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+  }
+  const total = chunks.reduce((a, c) => a + c.length, 0);
+  const result = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return result;
+}
+
+async function parseZip(buffer) {
+  const data = new Uint8Array(buffer);
+  const files = {};
+  let pos = 0;
+
+  while (pos + 30 <= data.length) {
+    const sig = readUint32LE(data, pos);
+    if (sig !== 0x04034b50) break;
+
+    const method = readUint16LE(data, pos + 8);
+    const compSize = readUint32LE(data, pos + 18);
+    const uncompSize = readUint32LE(data, pos + 22);
+    const nameLen = readUint16LE(data, pos + 26);
+    const extraLen = readUint16LE(data, pos + 28);
+
+    const nameBytes = data.subarray(pos + 30, pos + 30 + nameLen);
+    const name = new TextDecoder().decode(nameBytes);
+
+    const dataStart = pos + 30 + nameLen + extraLen;
+
+    // Handle data descriptor (bit 3 of general purpose flag)
+    const gpFlag = readUint16LE(data, pos + 6);
+    const hasDataDescriptor = (gpFlag & 0x08) !== 0;
+
+    let fileCompSize = compSize;
+    let fileUncompSize = uncompSize;
+
+    if (hasDataDescriptor && fileCompSize === 0) {
+      // Need to find the data descriptor after the compressed data.
+      // For stored files this is hard without knowing size, but for
+      // deflated data we can look for the descriptor signature.
+      // This is a common case with ZIP_DEFLATED from Python's zipfile.
+      // Search for the data descriptor signature 0x08074b50.
+      let searchPos = dataStart;
+      while (searchPos + 16 <= data.length) {
+        if (readUint32LE(data, searchPos) === 0x08074b50) {
+          // Found potential descriptor
+          const descCompSize = readUint32LE(data, searchPos + 8);
+          // Verify: the compressed size should equal the distance from dataStart
+          if (descCompSize === searchPos - dataStart) {
+            fileCompSize = descCompSize;
+            fileUncompSize = readUint32LE(data, searchPos + 12);
+            break;
+          }
+        }
+        searchPos++;
+      }
+      if (fileCompSize === 0) {
+        // Could not find descriptor; skip this entry
+        break;
+      }
+    }
+
+    const compData = data.subarray(dataStart, dataStart + fileCompSize);
+
+    if (!name.endsWith('/')) {
+      if (method === 0) {
+        // Stored
+        files[name] = compData.slice();
+      } else if (method === 8) {
+        // Deflated
+        files[name] = await decompressDeflateRaw(compData);
+      } else {
+        console.warn('Unsupported compression method', method, 'for', name);
+      }
+    }
+
+    // Advance past file data
+    let nextPos = dataStart + fileCompSize;
+
+    // Skip past data descriptor if present
+    if (hasDataDescriptor) {
+      if (nextPos + 4 <= data.length && readUint32LE(data, nextPos) === 0x08074b50) {
+        nextPos += 16; // signature(4) + crc(4) + compSize(4) + uncompSize(4)
+      } else if (nextPos + 12 <= data.length) {
+        nextPos += 12; // crc(4) + compSize(4) + uncompSize(4) without signature
+      }
+    }
+
+    pos = nextPos;
+  }
+
+  return files;
+}
+
+// ── UI logic ──
+
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+const fileName = document.getElementById('fileName');
+const infoPanel = document.getElementById('infoPanel');
+const importBtn = document.getElementById('importBtn');
+const statusEl = document.getElementById('status');
+const progressBar = document.getElementById('progressBar');
+const progressFill = document.getElementById('progressFill');
+
+let parsedManifest = null;
+let parsedFiles = null;
+
+function setStatus(msg, type) {
+  statusEl.textContent = msg;
+  statusEl.className = 'status ' + type;
+}
+
+function clearStatus() {
+  statusEl.className = 'status';
+  statusEl.textContent = '';
+  progressBar.style.display = 'none';
+  progressFill.style.width = '0%';
+}
+
+function setProgress(pct) {
+  progressBar.style.display = 'block';
+  progressFill.style.width = pct + '%';
+}
+
+// Drop zone interaction
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  dropZone.classList.add('drag-over');
+});
+dropZone.addEventListener('dragleave', () => {
+  dropZone.classList.remove('drag-over');
+});
+dropZone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  if (e.dataTransfer.files.length > 0) {
+    handleFile(e.dataTransfer.files[0]);
+  }
+});
+fileInput.addEventListener('change', () => {
+  if (fileInput.files.length > 0) {
+    handleFile(fileInput.files[0]);
+  }
+});
+
+async function handleFile(file) {
+  if (!file.name.endsWith('.zip')) {
+    setStatus('Please select a .zip file.', 'error');
+    return;
+  }
+
+  clearStatus();
+  fileName.textContent = file.name;
+  importBtn.disabled = true;
+  parsedManifest = null;
+  parsedFiles = null;
+  infoPanel.style.display = 'none';
+
+  setStatus('Reading ZIP file...', 'info');
+
+  try {
+    const buffer = await file.arrayBuffer();
+    setStatus('Extracting ZIP contents...', 'info');
+    const files = await parseZip(buffer);
+    parsedFiles = files;
+
+    const fileNames = Object.keys(files);
+    if (!fileNames.includes('manifest.json')) {
+      setStatus('Invalid bundle: missing manifest.json', 'error');
+      return;
+    }
+
+    const manifestText = new TextDecoder().decode(files['manifest.json']);
+    const manifest = JSON.parse(manifestText);
+
+    if (manifest.version !== 1) {
+      setStatus('Unsupported bundle version: ' + manifest.version, 'error');
+      return;
+    }
+
+    parsedManifest = manifest;
+
+    // Show info
+    const stateCount = (manifest.states || []).length;
+    const connCount = (manifest.connections || []).length;
+    const screenshotCount = fileNames.filter(n => n.startsWith('screenshots/')).length;
+
+    infoPanel.innerHTML =
+      '<div><span class="label">Site: </span><span class="value">' + escapeHtml(manifest.site_name || 'Unknown') + '</span></div>' +
+      '<div><span class="label">Generated: </span><span class="value">' + escapeHtml(manifest.generated_at || '?') + '</span></div>' +
+      '<div><span class="label">States: </span><span class="value">' + stateCount + '</span></div>' +
+      '<div><span class="label">Connections: </span><span class="value">' + connCount + '</span></div>' +
+      '<div><span class="label">Screenshots: </span><span class="value">' + screenshotCount + '</span></div>';
+    infoPanel.style.display = 'block';
+
+    // Validate screenshots exist
+    let missing = 0;
+    for (const state of manifest.states || []) {
+      if (state.screenshot && !files[state.screenshot]) {
+        missing++;
+      }
+    }
+    if (missing > 0) {
+      setStatus('Warning: ' + missing + ' screenshot(s) referenced but missing from ZIP.', 'info');
+    } else {
+      clearStatus();
+    }
+
+    importBtn.disabled = false;
+  } catch (err) {
+    setStatus('Error reading ZIP: ' + err.message, 'error');
+  }
+}
+
+function escapeHtml(s) {
+  const div = document.createElement('div');
+  div.textContent = s;
+  return div.innerHTML;
+}
+
+// Import button
+importBtn.addEventListener('click', async () => {
+  if (!parsedManifest || !parsedFiles) return;
+
+  importBtn.disabled = true;
+  setStatus('Sending manifest to Figma...', 'info');
+  setProgress(0);
+
+  try {
+    // Send manifest
+    parent.postMessage({ pluginMessage: { type: 'manifest', data: parsedManifest } }, '*');
+
+    // Send screenshots
+    const states = parsedManifest.states || [];
+    let sent = 0;
+
+    for (const state of states) {
+      if (state.screenshot && parsedFiles[state.screenshot]) {
+        const imgData = parsedFiles[state.screenshot];
+        // Ensure we send a proper Uint8Array
+        const bytes = new Uint8Array(imgData.buffer, imgData.byteOffset, imgData.byteLength);
+        parent.postMessage({
+          pluginMessage: {
+            type: 'image',
+            stateId: state.id,
+            data: bytes,
+          }
+        }, '*');
+        sent++;
+        const pct = Math.round((sent / states.length) * 90);
+        setProgress(pct);
+        setStatus('Sending screenshot ' + sent + ' of ' + states.length + '...', 'info');
+
+        // Yield to let messages drain
+        await new Promise(r => setTimeout(r, 10));
+      }
+    }
+
+    parent.postMessage({ pluginMessage: { type: 'all-images-sent' } }, '*');
+    setStatus('Building sitemap in Figma...', 'info');
+    setProgress(95);
+  } catch (err) {
+    setStatus('Error during import: ' + err.message, 'error');
+    importBtn.disabled = false;
+  }
+});
+
+// Listen for messages from the sandbox
+window.onmessage = (event) => {
+  const msg = event.data.pluginMessage;
+  if (!msg) return;
+
+  if (msg.type === 'progress') {
+    setStatus(msg.message, 'info');
+    if (typeof msg.percent === 'number') {
+      setProgress(msg.percent);
+    }
+  } else if (msg.type === 'success') {
+    setStatus(msg.message || 'Import complete!', 'success');
+    setProgress(100);
+  } else if (msg.type === 'error') {
+    setStatus('Error: ' + (msg.message || 'Unknown error'), 'error');
+    importBtn.disabled = false;
+  }
+};
+</script>
+</body>
+</html>

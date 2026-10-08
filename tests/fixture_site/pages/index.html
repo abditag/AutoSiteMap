@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html><head><title>Dashboard</title>
+<link rel="stylesheet" href="/static/style.css">
+</head><body>
+<div id="dashboard">
+  <h1>Dashboard</h1>
+  <p class="mask-me">User: testuser@example.com</p>
+  <p class="timestamp" id="ts">2024-01-15 10:30:00</p>
+  <p class="dynamic-content">Session ID: abc123</p>
+
+  <nav>
+    <a href="/list.html">Item List</a>
+    <a href="/detail.html?id=1">Detail #1</a>
+    <a href="/settings.html">Settings</a>
+    <a href="https://example.com" target="_blank">External Link</a>
+    <a href="/admin/panel.html">Admin (denied)</a>
+  </nav>
+
+  <button id="open-modal" onclick="openModal()">Open Dialog</button>
+  <button disabled id="disabled-btn">Disabled Action</button>
+  <a href="/files/report.pdf" download>Download Report</a>
+
+  <div class="tab-bar">
+    <button role="tab" aria-selected="true" onclick="switchTab('tab1')" id="tab-btn-1">Tab 1</button>
+    <button role="tab" aria-selected="false" onclick="switchTab('tab2')" id="tab-btn-2">Tab 2</button>
+  </div>
+  <div id="tab1" class="tab-panel active"><p>Content for Tab 1</p></div>
+  <div id="tab2" class="tab-panel"><p>Content for Tab 2 with different structure</p><ul><li>Item A</li><li>Item B</li></ul></div>
+
+  <div id="modal-overlay" class="modal-overlay">
+    <div class="modal">
+      <h2>Dialog Title</h2>
+      <p>This is a modal dialog with unique content.</p>
+      <button class="modal-close" data-dismiss="modal" onclick="closeModal()">Close</button>
+    </div>
+  </div>
+
+  <iframe src="about:blank" width="1" height="1" style="display:none"></iframe>
+</div>
+
+<script>
+function openModal() {
+  document.getElementById('modal-overlay').classList.add('active');
+}
+function closeModal() {
+  document.getElementById('modal-overlay').classList.remove('active');
+}
+function switchTab(id) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  document.querySelectorAll('[role=tab]').forEach(t => t.setAttribute('aria-selected', 'false'));
+  event.target.setAttribute('aria-selected', 'true');
+}
+</script>
+</body></html>

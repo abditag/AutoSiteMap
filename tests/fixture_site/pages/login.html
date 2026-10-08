@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html><head><title>Login</title>
+<link rel="stylesheet" href="/static/style.css">
+</head><body>
+<h1>Login</h1>
+<form id="login-form" onsubmit="doLogin(event)">
+  <input type="text" id="username" placeholder="Username" value="testuser">
+  <input type="password" id="password" placeholder="Password" value="testpass">
+  <button type="submit">Log In</button>
+</form>
+<script>
+function doLogin(e) {
+  e.preventDefault();
+  document.cookie = "auth=valid; path=/";
+  window.location.href = "/";
+}
+</script>
+</body></html>

@@ -1,0 +1,75 @@
+[site]
+name = "Fixture Test Site"
+start_url = "http://localhost:{port}/"
+
+[auth]
+login_url = "http://localhost:{port}/login.html"
+readiness_selector = "#dashboard"
+login_timeout = 30
+session_expired_selector = "#login-form"
+
+[scope]
+url_prefix = "http://localhost:{port}/"
+deny_url_patterns = [
+    "/admin",
+]
+
+[viewport]
+width = 800
+height = 600
+
+[budgets]
+max_states = 15
+max_actions_per_state = 20
+max_depth = 4
+global_timeout = 120
+action_timeout = 5
+screenshot_timeout = 3
+max_scroll_steps = 3
+
+[controls]
+include_selectors = [
+    "a[href]",
+    "button",
+    "[role=button]",
+    "[role=tab]",
+    "[role=menuitem]",
+    "details > summary",
+]
+unsafe_selectors = [
+    "form[method='post'] button[type='submit']",
+    "[data-unsafe='true']",
+]
+unsafe_text_patterns = [
+    "(?i)delete",
+    "(?i)remove",
+    "(?i)save",
+    "(?i)submit",
+]
+dismiss_selectors = [
+    "[data-dismiss='modal']",
+    "button.modal-close",
+]
+
+[screenshot]
+full_page = false
+mask_selectors = [
+    ".mask-me",
+]
+mask_color = "#FF00FF"
+
+[fingerprint]
+ignore_selectors = [
+    ".timestamp",
+    ".dynamic-content",
+]
+ignore_url_params = []
+
+[diagram]
+card_width = 300
+card_padding = 15
+horizontal_gap = 40
+vertical_gap = 60
+
+[export]
+redact_url_patterns = []

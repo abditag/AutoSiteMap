@@ -1,0 +1,93 @@
+[site]
+name = "ImmobilienScout24 Property Hub"
+start_url = "https://www.immobilienscout24.de/meinkonto/meine-immobilien/"
+
+[auth]
+login_url = "https://www.immobilienscout24.de/meinkonto/meine-immobilien/"
+readiness_selector = "[data-testid='my-properties'], .my-properties-list, main"
+login_timeout = 300
+session_expired_selector = "[data-testid='login-form'], .sso-login"
+
+[scope]
+url_prefix = "https://www.immobilienscout24.de/meinkonto/meine-immobilien/"
+deny_url_patterns = [
+    "/logout",
+    "/account-delete",
+    "/kuendigen",
+]
+
+[viewport]
+width = 1280
+height = 720
+
+[budgets]
+max_states = 50
+max_actions_per_state = 30
+max_depth = 6
+global_timeout = 600
+action_timeout = 10
+screenshot_timeout = 5
+max_scroll_steps = 5
+
+[controls]
+include_selectors = [
+    "a[href]",
+    "button",
+    "[role=button]",
+    "[role=tab]",
+    "[role=menuitem]",
+    "details > summary",
+]
+unsafe_selectors = [
+    "form[method='post'] button[type='submit']",
+    "form[action] button[type='submit']",
+    "[data-testid*='delete']",
+    "[data-testid*='cancel-contract']",
+]
+unsafe_text_patterns = [
+    "(?i)löschen",
+    "(?i)kündigen",
+    "(?i)kaufen",
+    "(?i)senden",
+    "(?i)bestellen",
+    "(?i)buchen",
+    "(?i)abonnieren",
+    "(?i)speichern",
+    "(?i)delete",
+    "(?i)remove",
+    "(?i)submit",
+    "(?i)purchase",
+    "(?i)save",
+]
+dismiss_selectors = [
+    "[data-testid='modal-close']",
+    "button[aria-label='Close']",
+    "button[aria-label='Schließen']",
+    ".modal-close",
+]
+
+[screenshot]
+full_page = false
+mask_selectors = [
+    "[data-testid='user-name']",
+    "[data-testid='user-email']",
+    ".user-avatar",
+]
+mask_color = "#FF00FF"
+
+[fingerprint]
+ignore_selectors = [
+    ".timestamp",
+    "[data-testid='last-updated']",
+    ".notification-badge",
+]
+ignore_url_params = ["utm_source", "utm_medium", "utm_campaign"]
+
+[diagram]
+card_width = 400
+card_padding = 20
+horizontal_gap = 60
+vertical_gap = 80
+
+[export]
+redact_url_patterns = []
